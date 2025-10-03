@@ -1,0 +1,11 @@
+customer_id,tenure_months,contract_month_to_month,num_support_tickets,monthly_spend,last_login_days,churn
+C001,2,1,7,135,21,1
+C002,18,0,1,55,3,0
+C003,5,1,2,89,30,1
+C004,36,0,3,65,2,0
+C005,1,1,6,150,45,1
+C006,60,0,0,40,1,0
+C007,8,1,5,120,10,1
+C008,12,0,2,80,8,0
+C009,4,1,1,90,20,1
+C010,24,0,3,70,5,0

@@ -1,0 +1,5 @@
+customer_id,tenure_months,contract_month_to_month,num_support_tickets,monthly_spend,last_login_days
+P001,2,1,7,135,21
+P002,18,0,1,55,3
+P003,5,1,2,89,30
+P004,36,0,3,65,2
