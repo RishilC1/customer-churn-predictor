@@ -1,34 +1,26 @@
-version: "3.9"
 services:
-  db:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_USER: app
-      POSTGRES_PASSWORD: app
-      POSTGRES_DB: churnguard
-    ports: ["5432:5432"]
-    volumes: [ "db_data:/var/lib/postgresql/data" ]
-
   api:
     build: ./api
-    environment:
-      DATABASE_URL: postgres://app:app@db:5432/churnguard
-      JWT_SECRET: devsecret
-      ML_SERVICE_URL: http://ml:8000
-      NODE_ENV: development
-    depends_on: [ db, ml ]
     ports: ["4000:4000"]
-
-  ml:
-    build: ./ml
+    environment:
+      JWT_SECRET: "dev-secret-change-me"
+      ML_URL: "http://ml:8000"
     volumes:
-      - ./ml:/app
-    ports: ["8000:8000"]
+      - api_data:/app/data
+    depends_on:
+      - ml
 
   web:
     build: ./web
     ports: ["5173:5173"]
-    depends_on: [ api ]
+    environment:
+      VITE_API_URL: "http://localhost:4000"
+    depends_on:
+      - api
+
+  ml:
+    build: ./ml
+    ports: ["8000:8000"]
 
 volumes:
-  db_data:
+  api_data:

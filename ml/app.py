@@ -1,67 +1,66 @@
-from fastapi import FastAPI
-from pydantic import BaseModel
+# ml/app.py
+from fastapi import FastAPI, UploadFile, File
 from typing import List, Dict, Any
-import os
-import numpy as np
+import io, os
 import pandas as pd
-from sklearn.ensemble import RandomForestClassifier
+import numpy as np
 from joblib import load
 
-app = FastAPI(title="ChurnGuard ML")
+app = FastAPI(title="Churn ML")
 
-FEATURES = ["tenure_months","contract_month_to_month","num_support_tickets","monthly_spend","last_login_days"]
-MODEL_PATH = os.environ.get("MODEL_PATH", "model.joblib")
+FEATURES = ["tenure_months", "contract_month_to_month", "num_support_tickets",
+            "monthly_spend", "last_login_days"]
 
-model = None
-feature_importances = None
+MODEL = None  # loaded lazily
 
-def _train_synthetic_model():
-    rng = np.random.default_rng(42)
-    X_train = pd.DataFrame({
-        "tenure_months": rng.integers(0, 72, 2000),
-        "contract_month_to_month": rng.integers(0, 2, 2000),
-        "num_support_tickets": rng.integers(0, 10, 2000),
-        "monthly_spend": rng.normal(70, 25, 2000).clip(5, 200),
-        "last_login_days": rng.integers(0, 60, 2000)
-    })
-    y_train = (0.25 * (X_train["tenure_months"] < 6).astype(int)
-              +0.30 * X_train["contract_month_to_month"]
-              +0.15 * (X_train["num_support_tickets"] > 5).astype(int)
-              +0.10 * (X_train["monthly_spend"] > 120).astype(int)
-              +0.20 * (X_train["last_login_days"] > 14).astype(int)
-             ) + rng.normal(0,0.1,2000)
-    y_train = (y_train > 0.5).astype(int)
-
-    m = RandomForestClassifier(n_estimators=200, random_state=7)
-    m.fit(X_train, y_train)
-    return m
-
-def _load_model():
-    global model, feature_importances
-    if os.path.exists(MODEL_PATH):
-        model = load(MODEL_PATH)
+def load_model():
+    global MODEL
+    if MODEL is not None:
+        return MODEL
+    if os.path.exists("model.joblib"):
+        MODEL = load("model.joblib")
+        print("Loaded model.joblib")
     else:
-        model = _train_synthetic_model()
-    if hasattr(model, "feature_importances_"):
-        feature_importances = dict(zip(FEATURES, model.feature_importances_.tolist()))
+        MODEL = None
+        print("No model.joblib found; using heuristic.")
+    return MODEL
+
+def prepare(df: pd.DataFrame) -> pd.DataFrame:
+    for col in FEATURES:
+        if col not in df.columns:
+            df[col] = 0
+    for col in FEATURES:
+        df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0.0)
+    return df
+
+def heuristic(x: pd.DataFrame) -> np.ndarray:
+    score = (
+        0.02 * (12 - np.clip(x["tenure_months"], 0, 60)) +
+        0.15 * np.clip(x["contract_month_to_month"], 0, 1) +
+        0.05 * np.clip(x["num_support_tickets"], 0, 20) +
+        0.01 * (150 - np.clip(x["monthly_spend"], 0, 150)) +
+        0.03 * np.clip(x["last_login_days"], 0, 90)
+    )
+    p = 1.0 / (1.0 + np.exp(-score))
+    return np.clip(p, 0, 1)
+
+@app.post("/predict-csv")
+async def predict_csv(file: UploadFile = File(...)) -> Dict[str, Any]:
+    content = await file.read()
+    df = pd.read_csv(io.BytesIO(content))
+    df = prepare(df)
+
+    model = load_model()
+    if model is None:
+        probs = heuristic(df)
     else:
-        feature_importances = {f: 1.0/len(FEATURES) for f in FEATURES}
+        probs = model.predict_proba(df[FEATURES])[:, 1]
 
-_load_model()
-
-class PredictPayload(BaseModel):
-    rows: List[Dict[str, Any]]
-
-@app.post("/predict")
-def predict(payload: PredictPayload):
-    df = pd.DataFrame(payload.rows)
-    for f in FEATURES:
-        if f not in df.columns:
-            df[f] = 0
-    df = df[FEATURES].apply(pd.to_numeric, errors="coerce").fillna(0)
-    probs = model.predict_proba(df)[:,1].tolist()
-    return {"probabilities": probs, "feature_importances": feature_importances}
-
-@app.get("/")
-def health():
-    return {"status": "ok", "using_persisted_model": os.path.exists(MODEL_PATH)}
+    out: List[Dict[str, Any]] = []
+    for i, p in enumerate(probs):
+        out.append({
+            "customerId": df.iloc[i].get("customer_id") if "customer_id" in df.columns else i,
+            "probability": float(p),
+            "features": {k: float(df.iloc[i][k]) for k in FEATURES}
+        })
+    return {"predictions": out}
