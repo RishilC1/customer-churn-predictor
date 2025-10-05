@@ -1,4 +1,4 @@
-# ChurnGuard
+# Churn Predictor
 
 ## Run with Docker (recommended)
 ```bash
