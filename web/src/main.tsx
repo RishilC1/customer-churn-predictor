@@ -12,8 +12,16 @@ function useTheme() {
   });
   useEffect(() => {
     const cls = document.documentElement.classList;
-    if (dark) { cls.add("dark"); localStorage.setItem("theme","dark"); (document.documentElement as any).style.setProperty('--bg', '#0b0b0b'); }
-    else { cls.remove("dark"); localStorage.setItem("theme","light"); (document.documentElement as any).style.setProperty('--bg', '#f6f7fb'); }
+    if (dark) { 
+      cls.remove("light");
+      cls.add("dark"); 
+      localStorage.setItem("theme","dark"); 
+    }
+    else { 
+      cls.remove("dark");
+      cls.add("light"); 
+      localStorage.setItem("theme","light"); 
+    }
   }, [dark]);
   return { dark, setDark };
 }
@@ -26,7 +34,11 @@ function useAuth() {
     return c;
   }, [token]);
   const signIn = (t: string) => { localStorage.setItem("token", t); setToken(t); };
-  const signOut = () => { localStorage.removeItem("token"); setToken(null); };
+  const signOut = () => { 
+    localStorage.removeItem("token"); 
+    setToken(null); 
+    window.location.reload(); // Force page reload to reset state
+  };
   return { token, client, signIn, signOut, authed: !!token };
 }
 
@@ -84,73 +96,172 @@ function Dashboard({ client, onSignOut }: { client: AxiosInstance; onSignOut: ()
   const [busy, setBusy] = useState(false);
   const [rows, setRows] = useState<any[]>([]);
   const [threshold, setThreshold] = useState(0.6);
+  const [error, setError] = useState<string|null>(null);
 
   useEffect(() => { client.get("/me").then(r => setMe(r.data)).catch(()=>{}); }, [client]);
 
   async function upload() {
     if (!file) return;
     setBusy(true);
+    setError(null);
     try {
+      // Send directly to ML service to avoid API proxy issues
       const fd = new FormData();
       fd.append("file", file);
-      const r = await client.post("/predict", fd);
-      setRows(r.data?.predictions || []);
-    } catch (e) {
-      console.error(e);
-      alert("Prediction failed");
+      
+      const r = await fetch("http://localhost:8000/predict-csv", {
+        method: "POST",
+        body: fd,
+      });
+      
+      if (!r.ok) {
+        const text = await r.text().catch(() => "");
+        throw new Error(`ML service error: ${text}`);
+      }
+      
+      const data = await r.json();
+      setRows(data?.predictions || []);
+    } catch (e: any) {
+      console.error("Upload error:", e);
+      const errorMsg = e?.message || "Prediction failed";
+      setError(`Prediction failed: ${errorMsg}`);
     } finally { setBusy(false); }
   }
 
   const flagged = rows.filter(r => r.probability >= threshold);
 
   return (
-    <div>
+    <div style={{minHeight: "100vh", background: "var(--bg)"}}>
       <div className="toolbar">
         <div style={{display:"flex", alignItems:"center", gap:10}}>
-          <strong>Churn Predictor</strong>
-          <span className="muted" style={{fontSize:13}}>Dashboard</span>
+          <strong>🎯 Churn Predictor</strong>
+          <span className="muted" style={{fontSize:14}}>Analytics Dashboard</span>
         </div>
         <div style={{display:"flex", gap:8}}>
-          <button type="button" className="btn btn-ghost" onClick={()=>setDark(!dark)}>{dark?"🌞 Light":"🌙 Dark"}</button>
-          <button type="button" className="btn btn-ghost" onClick={onSignOut}>Sign out</button>
+          <button type="button" className="btn btn-ghost" onClick={()=>setDark(!dark)}>
+            {dark?"☀️ Light":"🌙 Dark"}
+          </button>
+          <button type="button" className="btn btn-ghost" onClick={onSignOut}>
+            👋 Sign out
+          </button>
         </div>
       </div>
 
-      <div style={{padding:20}}>
-        <h2 style={{marginTop:0}}>Welcome, {me?.email}</h2>
-
-        <div style={{display:"flex", flexWrap:"wrap", gap:12, alignItems:"center", margin:"16px 0"}}>
-          <input type="file" accept=".csv" onChange={e=>setFile(e.target.files?.[0] || null)} />
-          <button className="btn btn-primary" type="button" disabled={!file || busy} onClick={upload}>
-            {busy ? "Uploading..." : "Upload CSV & Predict"}
-          </button>
-          <label className="muted" style={{display:"flex", alignItems:"center", gap:8}}>
-            Risk threshold:
-            <input type="number" min={0} max={1} step={0.05} value={threshold} onChange={e=>setThreshold(parseFloat(e.target.value)||0)} style={{width:90}}/>
-          </label>
-          <span>High-risk count: <b>{flagged.length}</b></span>
+      <div style={{padding: "32px 24px", maxWidth: "1200px", margin: "0 auto"}}>
+        <div style={{marginBottom: "32px"}}>
+          <h1 style={{margin: "0 0 8px 0", fontSize: "32px", fontWeight: "700"}}>
+            Welcome back, {me?.email?.split("@")[0]}! 👋
+          </h1>
+          <p className="muted" style={{fontSize: "16px", margin: 0}}>
+            Upload your customer data to predict churn risk
+          </p>
         </div>
 
-        <div style={{overflowX:"auto"}}>
-          <table>
-            <thead>
-              <tr><th>customer_id</th><th>probability</th><th>features</th></tr>
-            </thead>
-            <tbody>
-              {rows.map((p, i) => (
-                <tr key={p.customerId ?? i} style={{background: p.probability >= threshold ? "rgba(239,68,68,.08)" : "transparent"}}>
-                  <td>{p.customerId ?? "-"}</td>
-                  <td>{p.probability.toFixed(3)}</td>
-                  <td><code>{JSON.stringify(p.features)}</code></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="stats">
+          <div className="stat-card">
+            <div className="stat-number">{rows.length}</div>
+            <div className="stat-label">Total Customers</div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-number">{flagged.length}</div>
+            <div className="stat-label">High Risk</div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-number">
+              {rows.length > 0 ? ((flagged.length / rows.length) * 100).toFixed(1) : 0}%
+            </div>
+            <div className="stat-label">Risk Rate</div>
+          </div>
         </div>
+
+        <div style={{background: "var(--card)", borderRadius: "16px", padding: "24px", border: "1px solid var(--border)", marginBottom: "24px"}}>
+          <h3 style={{margin: "0 0 16px 0", fontSize: "18px", fontWeight: "600"}}>📊 Upload Customer Data</h3>
+          
+          <div className="upload-area">
+            <input 
+              type="file" 
+              accept=".csv" 
+              onChange={e=>setFile(e.target.files?.[0] || null)}
+              style={{marginBottom: "16px"}}
+            />
+            <p className="muted" style={{margin: "8px 0", fontSize: "14px"}}>
+              📁 Select a CSV file with customer data
+            </p>
+          </div>
+
+          <div style={{display:"flex", flexWrap:"wrap", gap:16, alignItems:"center", margin:"16px 0"}}>
+            <button className="btn btn-primary" type="button" disabled={!file || busy} onClick={upload}>
+              {busy ? "⏳ Processing..." : "🚀 Analyze Data"}
+            </button>
+            
+            <label className="muted" style={{display:"flex", alignItems:"center", gap:8}}>
+              Risk threshold:
+              <input 
+                type="number" 
+                min={0} 
+                max={1} 
+                step={0.05} 
+                value={threshold} 
+                onChange={e=>setThreshold(parseFloat(e.target.value)||0)} 
+                style={{width:80, padding: "8px 12px"}}
+              />
+            </label>
+          </div>
+
+          {error && (
+            <div style={{background: "rgba(239, 68, 68, 0.1)", border: "1px solid var(--danger)", borderRadius: "8px", padding: "12px", margin: "16px 0", color: "var(--danger)"}}>
+              ⚠️ {error}
+            </div>
+          )}
+        </div>
+
+        {rows.length > 0 && (
+          <div style={{background: "var(--card)", borderRadius: "16px", padding: "24px", border: "1px solid var(--border)"}}>
+            <h3 style={{margin: "0 0 16px 0", fontSize: "18px", fontWeight: "600"}}>📈 Prediction Results</h3>
+            <div style={{overflowX:"auto"}}>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Customer ID</th>
+                    <th>Churn Probability</th>
+                    <th>Risk Level</th>
+                    <th>Features</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((p, i) => {
+                    const isHighRisk = p.probability >= threshold;
+                    return (
+                      <tr key={p.customerId ?? i} className={isHighRisk ? "high-risk" : ""}>
+                        <td style={{fontWeight: "500"}}>{p.customerId ?? "-"}</td>
+                        <td>
+                          <span style={{fontWeight: "600", color: isHighRisk ? "var(--danger)" : "var(--success)"}}>
+                            {(p.probability * 100).toFixed(1)}%
+                          </span>
+                        </td>
+                        <td>
+                          <span style={{padding: "4px 8px", borderRadius: "6px", fontSize: "12px", fontWeight: "500", background: isHighRisk ? "rgba(239, 68, 68, 0.1)" : "rgba(16, 185, 129, 0.1)", color: isHighRisk ? "var(--danger)" : "var(--success)"}}>
+                            {isHighRisk ? "🔴 High Risk" : "🟢 Low Risk"}
+                          </span>
+                        </td>
+                        <td><code>{JSON.stringify(p.features)}</code></td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
 
         {!rows.length && (
-          <div className="muted" style={{marginTop:18}}>
-            CSV example cols: <code>customer_id, tenure_months, contract_month_to_month, num_support_tickets, monthly_spend, last_login_days</code>.
+          <div style={{background: "var(--card)", borderRadius: "16px", padding: "24px", border: "1px solid var(--border)", textAlign: "center"}}>
+            <div className="muted" style={{fontSize: "16px"}}>
+              <p style={{margin: "0 0 12px 0"}}>📋 Expected CSV columns:</p>
+              <code style={{display: "block", background: "var(--border)", padding: "12px", borderRadius: "8px", fontSize: "14px"}}>
+                customer_id, tenure_months, contract_month_to_month, num_support_tickets, monthly_spend, last_login_days
+              </code>
+            </div>
           </div>
         )}
       </div>

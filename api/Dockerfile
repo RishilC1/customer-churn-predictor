@@ -8,4 +8,4 @@ COPY src ./src
 RUN mkdir -p /app/data
 
 EXPOSE 4000
-CMD ["npm", "run", "dev"]
+CMD ["npm", "run", "start"]

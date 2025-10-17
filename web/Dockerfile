@@ -3,9 +3,9 @@ WORKDIR /app
 
 COPY package.json tsconfig.json index.html ./
 COPY src ./src
-COPY .dockerignore ./.dockerignore
 
 RUN npm install --no-audit --no-fund
+RUN npm run build
 
 EXPOSE 5173
-CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "5173"]
+CMD ["npm", "run", "preview"]

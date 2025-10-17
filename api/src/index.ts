@@ -100,27 +100,30 @@ app.post("/predict", authGuard, upload.single("file"), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: "No file uploaded" });
 
+    // Create a proper FormData object for the ML service
     const fd = new FormData();
     fd.append("file", req.file.buffer, {
-      filename: req.file.originalname,
-      contentType: req.file.mimetype
+      filename: req.file.originalname || "data.csv",
+      contentType: req.file.mimetype || "text/csv"
     });
 
     const r = await fetch(`${ML_URL}/predict-csv`, {
       method: "POST",
-      // @ts-ignore: form-data streams + headers are fine for fetch in Node 20
       body: fd,
-      headers: (fd as any).getHeaders?.() || {}
+      headers: fd.getHeaders()
     });
+    
     if (!r.ok) {
       const text = await r.text().catch(() => "");
+      console.error("ML service error:", text);
       return res.status(502).json({ error: "ML service error", details: text });
     }
+    
     const data = await r.json();
     return res.json(data);
   } catch (e: any) {
     console.error("Predict error:", e?.message || e);
-    return res.status(500).json({ error: "Prediction failed" });
+    return res.status(500).json({ error: "Prediction failed", details: e?.message });
   }
 });
 

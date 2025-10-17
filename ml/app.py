@@ -1,5 +1,6 @@
 # ml/app.py
 from fastapi import FastAPI, UploadFile, File
+from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Dict, Any
 import io, os
 import pandas as pd
@@ -7,6 +8,19 @@ import numpy as np
 from joblib import load
 
 app = FastAPI(title="Churn ML")
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # In production, specify actual origins
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+@app.get("/")
+async def root():
+    return {"message": "Churn ML Service is running", "status": "healthy"}
 
 FEATURES = ["tenure_months", "contract_month_to_month", "num_support_tickets",
             "monthly_spend", "last_login_days"]

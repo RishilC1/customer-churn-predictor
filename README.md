@@ -14,6 +14,6 @@ See earlier instructions; Docker-first is simpler.
 ## Train a model
 ```bash
 cd ml
-python train.py --train_csv ../sample_data/training_sample.csv --model_path ./model.joblib
+python train.py ../sample_data/training_sample.csv
 ```
 The ML service will load `model.joblib` automatically on restart.
