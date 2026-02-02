@@ -13,17 +13,45 @@ FEATURES = ["tenure_months", "contract_month_to_month", "num_support_tickets",
 TARGET = "churn"  # expects 0/1
 
 def prepare(df: pd.DataFrame) -> pd.DataFrame:
-    # Ensure feature columns exist and are numeric
+    if "Tenure" in df.columns and "Support Calls" in df.columns and "Churn" in df.columns:
+        df["tenure_months"] = pd.to_numeric(df["Tenure"], errors="coerce")
+
+        df["num_support_tickets"] = pd.to_numeric(df["Support Calls"], errors="coerce")
+
+        df["monthly_spend"] = pd.to_numeric(df["Total Spend"], errors="coerce")
+
+        df["last_login_days"] = pd.to_numeric(df["Last Interaction"], errors="coerce")
+
+        # Contract Length may be "Monthly", "Yearly", etc.
+        df["contract_month_to_month"] = (
+            df["Contract Length"]
+            .astype(str)
+            .str.strip()
+            .str.lower()
+            .isin(["monthly", "month-to-month", "month to month"])
+            .astype(int)
+        )
+
+        # target mapping
+        df[TARGET] = pd.to_numeric(df["Churn"], errors="coerce").fillna(0).astype(int)
+
+    # --- Otherwise assume it's already in internal schema ---
+    # Ensure feature columns exist & are numeric
     for col in FEATURES:
         if col not in df.columns:
             df[col] = 0
         df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0.0)
+
     # Target
     if TARGET not in df.columns:
-        raise ValueError(f"CSV must include a '{TARGET}' column with 0/1 labels.")
+        raise ValueError(
+            f"CSV must include '{TARGET}' (0/1) or raw dataset must include 'Churn'."
+        )
     y = pd.to_numeric(df[TARGET], errors="coerce").fillna(0).astype(int)
+
     X = df[FEATURES].copy()
     return X, y
+
 
 def main():
     if len(sys.argv) < 2:
@@ -39,7 +67,7 @@ def main():
 
     Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
     model = RandomForestClassifier(
-        n_estimators=300, max_depth=None, min_samples_leaf=2, random_state=42, n_jobs=-1
+        n_estimators=300, max_depth=10, min_samples_leaf=10, max_features="sqrt", random_state=42, n_jobs=-1
     )
     model.fit(Xtr, ytr)
 
